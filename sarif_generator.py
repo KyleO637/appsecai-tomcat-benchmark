@@ -8,8 +8,20 @@ LEVEL_MAP = {"Low": "note", "Moderate": "warning", "High": "error"}
 
 
 def _parse_affected_component(raw: str) -> dict:
-    # Stub — fully implemented in Task 2.
-    return {"grep_term": "", "is_class": False, "all_methods": []}
+    raw = re.sub(r'`', '', raw)
+    parts = re.split(r'\s*→\s*', raw, maxsplit=1)
+    if len(parts) < 2:
+        raise ValueError(f"Affected Component has no → separator: {raw!r}")
+
+    rhs = parts[1].strip()
+    all_methods = [t.strip() for t in rhs.split(',')]
+
+    first = all_methods[0].rstrip('()')
+    if '.' in first:
+        class_name = first.split('.')[0]
+        return {"grep_term": class_name, "is_class": True, "all_methods": all_methods}
+    else:
+        return {"grep_term": first, "is_class": False, "all_methods": all_methods}
 
 
 def parse_markdown(path: Path) -> dict:
