@@ -114,7 +114,72 @@ def find_declaration_line(src_file: Path, grep_term: str, is_class: bool) -> int
 
 
 def build_sarif(cve_data: dict, start_line: int, end_line: int) -> dict:
-    raise NotImplementedError
+    cve_id = cve_data["cve_id"]
+    cwe_id = cve_data["cwe_id"]
+    cwe_desc = cve_data["cwe_description"]
+    severity = cve_data["severity"]
+    all_methods = cve_data["all_methods"]
+    file_path = cve_data["before_file_path"]
+    filename = Path(file_path).name
+
+    if len(all_methods) == 1:
+        msg = f"{cve_id} ({severity}): {cwe_id} {cwe_desc} in {filename} {all_methods[0]}."
+    else:
+        methods_str = ", ".join(all_methods)
+        msg = f"{cve_id} ({severity}): {cwe_id} {cwe_desc} in {filename}. Affected: {methods_str}."
+
+    snippet = "\n".join(cve_data["before_lines"])
+
+    return {
+        "version": "2.1.0",
+        "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "tomcat-cve-benchmark",
+                        "rules": [
+                            {
+                                "id": cve_id,
+                                "name": f"Tomcat {cve_id}",
+                                "shortDescription": {"text": f"{cwe_id} {cwe_desc}"},
+                                "properties": {
+                                    "tags": [cwe_id],
+                                    "cwe": [cwe_id],
+                                },
+                            }
+                        ],
+                    }
+                },
+                "results": [
+                    {
+                        "ruleId": cve_id,
+                        "level": LEVEL_MAP.get(severity, "note"),
+                        "message": {"text": msg},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": file_path},
+                                    "region": {
+                                        "startLine": start_line,
+                                        "endLine": end_line,
+                                        "startColumn": 1,
+                                        "endColumn": 80,
+                                        "snippet": {"text": snippet},
+                                    },
+                                }
+                            }
+                        ],
+                        "properties": {
+                            "cve": cve_id,
+                            "patch_complexity_score": cve_data["d1_score"],
+                            "files_touched": cve_data["files_touched"],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
 
 
 def main(fixes_dir: Path, sarif_dir: Path, tomcat_dir: Path) -> None:

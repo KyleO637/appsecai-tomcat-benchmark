@@ -69,3 +69,118 @@ def test_find_declaration_line_missing():
 
 def test_find_declaration_line_file_missing():
     assert find_declaration_line(Path("tomcat/java/does/not/Exist.java"), "foo", is_class=False) is None
+
+
+_MODERATE_CVE = {
+    "cve_id": "CVE-2023-41080",
+    "cwe_id": "CWE-601",
+    "cwe_description": "URL Redirection to Untrusted Site — Open Redirect",
+    "severity": "Moderate",
+    "d1_score": 1,
+    "before_file_path": "java/org/apache/catalina/authenticator/FormAuthenticator.java",
+    "before_lines": [
+        "protected String savedRequestURL(Session session) {",
+        "    return null;",
+        "}",
+    ],
+    "files_touched": 1,
+    "grep_term": "savedRequestURL",
+    "is_class": False,
+    "all_methods": ["savedRequestURL()"],
+}
+
+
+def test_build_sarif_top_level_structure():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    assert sarif["version"] == "2.1.0"
+    assert "$schema" in sarif
+    assert len(sarif["runs"]) == 1
+
+
+def test_build_sarif_tool_driver():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    driver = sarif["runs"][0]["tool"]["driver"]
+    assert driver["name"] == "tomcat-cve-benchmark"
+    rules = driver["rules"]
+    assert len(rules) == 1
+    assert rules[0]["id"] == "CVE-2023-41080"
+    assert rules[0]["properties"]["tags"] == ["CWE-601"]
+    assert rules[0]["properties"]["cwe"] == ["CWE-601"]
+
+
+def test_build_sarif_result_fields():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    result = sarif["runs"][0]["results"][0]
+    assert result["ruleId"] == "CVE-2023-41080"
+    assert result["level"] == "warning"
+    assert "(Moderate)" in result["message"]["text"]
+    assert "CVE-2023-41080" in result["message"]["text"]
+
+
+def test_build_sarif_region():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    region = sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
+    assert region["startLine"] == 755
+    assert region["endLine"] == 757
+    assert region["startColumn"] == 1
+    assert region["endColumn"] == 80
+    assert isinstance(region["startLine"], int)
+    assert isinstance(region["endLine"], int)
+    assert isinstance(region["startColumn"], int)
+    assert isinstance(region["endColumn"], int)
+    assert "protected String savedRequestURL" in region["snippet"]["text"]
+
+
+def test_build_sarif_artifact_uri():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    uri = sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "java/org/apache/catalina/authenticator/FormAuthenticator.java"
+
+
+def test_build_sarif_properties():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    props = sarif["runs"][0]["results"][0]["properties"]
+    assert props["cve"] == "CVE-2023-41080"
+    assert props["patch_complexity_score"] == 1
+    assert props["files_touched"] == 1
+    assert isinstance(props["patch_complexity_score"], int)
+    assert isinstance(props["files_touched"], int)
+
+
+def test_build_sarif_level_low():
+    low_cve = {
+        **_MODERATE_CVE,
+        "cve_id": "CVE-2026-24880",
+        "severity": "Low",
+        "d1_score": 3,
+        "all_methods": ["parseChunkHeader()"],
+    }
+    sarif = build_sarif(low_cve, start_line=365, end_line=412)
+    result = sarif["runs"][0]["results"][0]
+    assert result["level"] == "note"
+    assert "(Low)" in result["message"]["text"]
+
+
+def test_build_sarif_message_multi_method():
+    multi_cve = {
+        **_MODERATE_CVE,
+        "cve_id": "CVE-2026-34483",
+        "cwe_id": "CWE-117",
+        "cwe_description": "Improper Output Neutralization for Logs",
+        "severity": "Low",
+        "d1_score": 1,
+        "grep_term": "RequestElement",
+        "is_class": True,
+        "all_methods": ["RequestElement.addElement()", "RequestURIElement.addElement()"],
+    }
+    sarif = build_sarif(multi_cve, start_line=1343, end_line=1344)
+    msg = sarif["runs"][0]["results"][0]["message"]["text"]
+    assert "RequestElement.addElement()" in msg
+    assert "RequestURIElement.addElement()" in msg
+
+
+def test_build_sarif_rule_id_matches_result_rule_id():
+    sarif = build_sarif(_MODERATE_CVE, start_line=755, end_line=757)
+    rule_id = sarif["runs"][0]["tool"]["driver"]["rules"][0]["id"]
+    result_rule_id = sarif["runs"][0]["results"][0]["ruleId"]
+    assert rule_id == result_rule_id
