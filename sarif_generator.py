@@ -84,7 +84,7 @@ def parse_markdown(path: Path) -> dict:
                     state = "SCANNING_BEFORE"
 
             elif state == "SCANNING_BEFORE":
-                m = re.match(r'`(java/.+?)`', line)
+                m = re.match(r'`([^`]+\.java)`', line)
                 if m:
                     before_file_path = m.group(1)
                 elif re.match(r'^```\w', line.strip()):
@@ -97,7 +97,7 @@ def parse_markdown(path: Path) -> dict:
                     before_lines.append(line)
 
             elif state == "SCANNING_AFTER":
-                m = re.match(r'`(java/.+?)`', line)
+                m = re.match(r'`([^`]+\.java)`', line)
                 if m:
                     after_file_path = m.group(1)
                 elif re.match(r'^```\w', line.strip()):
