@@ -23,4 +23,6 @@ jobs:
         uses: AppSecureAI/automation-action@v1
         with:
           files: |
-            sarif/*.sarif
+            sarif/CVE-2023-41080.sarif
+            sarif/CVE-2026-34483.sarif
+            sarif/CVE-2026-24880.sarif
