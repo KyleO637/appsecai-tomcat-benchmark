@@ -1,0 +1,176 @@
+{
+  "CVE-2023-28709": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2023-34981": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2023-41080": {
+    "submitted_to_appsecai": true,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": "2026-06-19"
+  },
+  "CVE-2023-45648": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-24549": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-38286": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-52316": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-52317": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-52318": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2024-54677": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-24813": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-31650": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-48988": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-48989": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-52520": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-55668": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-61795": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2025-66614": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-24733": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-24880": {
+    "submitted_to_appsecai": true,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": "2026-06-19"
+  },
+  "CVE-2026-25854": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-29129": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-29145": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-29146": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-34483": {
+    "submitted_to_appsecai": true,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": "2026-06-19"
+  },
+  "CVE-2026-34487": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-41284": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-43513": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  },
+  "CVE-2026-43514": {
+    "submitted_to_appsecai": false,
+    "pr_created": null,
+    "triage_result": null,
+    "date_run": null
+  }
+}
