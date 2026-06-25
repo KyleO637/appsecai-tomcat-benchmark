@@ -1,4 +1,4 @@
-tomcat/
+/tomcat/
 
 .DS_Store
 __pycache__/
