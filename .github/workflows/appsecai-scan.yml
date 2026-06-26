@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -19,33 +19,70 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Generate pending SARIF file list
+        id: generate-list
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          from pathlib import Path
+
+          runs = json.loads(Path('pipeline_data/appsecai_runs.json').read_text())
+          pending = [
+              f"sarif/{cve}.sarif"
+              for cve, v in runs.items()
+              if not v['submitted_to_appsecai']
+          ]
+
+          if not pending:
+              print("No pending CVEs — nothing to submit.")
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write("sarif_files<<EOF\n")
+              f.write("\n".join(pending) + "\n")
+              f.write("EOF\n")
+              f.write(f"pending_cves={','.join(cve.split('/')[1].replace('.sarif','') for cve in pending)}\n")
+
+          print(f"Pending CVEs ({len(pending)}): {[p.split('/')[1].replace('.sarif','') for p in pending]}")
+          PYEOF
+
       - name: AppSecAI Vulnerability Analysis
+        if: steps.generate-list.outputs.sarif_files != ''
         uses: AppSecureAI/automation-action@v1
         with:
-          files: |
-            sarif/CVE-2023-28709.sarif
-            sarif/CVE-2023-34981.sarif
-            sarif/CVE-2023-45648.sarif
-            sarif/CVE-2024-24549.sarif
-            sarif/CVE-2024-38286.sarif
-            sarif/CVE-2024-52316.sarif
-            sarif/CVE-2024-52317.sarif
-            sarif/CVE-2024-52318.sarif
-            sarif/CVE-2024-54677.sarif
-            sarif/CVE-2025-24813.sarif
-            sarif/CVE-2025-31650.sarif
-            sarif/CVE-2025-48988.sarif
-            sarif/CVE-2025-48989.sarif
-            sarif/CVE-2025-52520.sarif
-            sarif/CVE-2025-55668.sarif
-            sarif/CVE-2025-61795.sarif
-            sarif/CVE-2025-66614.sarif
-            sarif/CVE-2026-24733.sarif
-            sarif/CVE-2026-25854.sarif
-            sarif/CVE-2026-29129.sarif
-            sarif/CVE-2026-29145.sarif
-            sarif/CVE-2026-29146.sarif
-            sarif/CVE-2026-34487.sarif
-            sarif/CVE-2026-41284.sarif
-            sarif/CVE-2026-43513.sarif
-            sarif/CVE-2026-43514.sarif
+          files: ${{ steps.generate-list.outputs.sarif_files }}
+
+      - name: Mark submitted CVEs in runs log
+        if: success() && steps.generate-list.outputs.pending_cves != ''
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          from datetime import date
+          from pathlib import Path
+
+          runs_path = Path('pipeline_data/appsecai_runs.json')
+          runs = json.loads(runs_path.read_text())
+
+          submitted = os.environ['PENDING_CVES'].split(',')
+          today = date.today().isoformat()
+
+          for cve in submitted:
+              if cve in runs:
+                  runs[cve]['submitted_to_appsecai'] = True
+                  runs[cve]['date_run'] = today
+
+          runs_path.write_text(json.dumps(runs, indent=2) + '\n')
+          print(f"Marked {len(submitted)} CVEs as submitted on {today}: {submitted}")
+          PYEOF
+        env:
+          PENDING_CVES: ${{ steps.generate-list.outputs.pending_cves }}
+
+      - name: Commit updated runs log
+        if: success() && steps.generate-list.outputs.pending_cves != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pipeline_data/appsecai_runs.json
+          git diff --cached --quiet || git commit -m "chore: mark $(echo $PENDING_CVES | tr ',' '\n' | wc -l | tr -d ' ') CVEs as submitted [skip ci]"
+          git push
+        env:
+          PENDING_CVES: ${{ steps.generate-list.outputs.pending_cves }}
