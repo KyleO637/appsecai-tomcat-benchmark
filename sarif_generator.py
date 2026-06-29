@@ -8,18 +8,28 @@ LEVEL_MAP = {"Low": "note", "Moderate": "warning", "High": "error"}
 
 
 def _parse_affected_component(raw: str) -> dict:
-    raw = re.sub(r'`', '', raw)
     parts = re.split(r'\s*→\s*', raw, maxsplit=1)
     if len(parts) < 2:
         raise ValueError(f"Affected Component has no → separator: {raw!r}")
 
     rhs = parts[1].strip()
-    all_methods = [t.strip() for t in rhs.split(',')]
+
+    # Extract backtick-enclosed tokens from the RHS; prefer those over raw text
+    backtick_tokens = re.findall(r'`([^`]+)`', rhs)
+    method_tokens = [t for t in backtick_tokens if not t.endswith('.java')]
+
+    if method_tokens:
+        all_methods = method_tokens
+    else:
+        rhs_clean = re.sub(r'`', '', rhs).strip()
+        all_methods = [t.strip() for t in rhs_clean.split(',')]
 
     first = all_methods[0].rstrip('()')
-    if '.' in first:
-        class_name = first.split('.')[0]
-        return {"grep_term": class_name, "is_class": True, "all_methods": all_methods}
+
+    # Only treat as ClassName.method if it matches that exact pattern (not e.g. HTTP/0.9)
+    class_method = re.match(r'^([A-Z]\w+)\.(\w+)', first)
+    if class_method:
+        return {"grep_term": class_method.group(1), "is_class": True, "all_methods": all_methods}
     else:
         return {"grep_term": first, "is_class": False, "all_methods": all_methods}
 
@@ -128,13 +138,22 @@ def find_declaration_line(src_file: Path, grep_term: str, is_class: bool) -> int
     if not src_file.exists():
         return None
 
+    escaped = re.escape(grep_term)
     if is_class:
-        pattern = re.compile(rf'\bclass\s+{re.escape(grep_term)}\b')
+        patterns = [re.compile(rf'\bclass\s+{escaped}\b')]
     else:
-        pattern = re.compile(rf'\b(?:private|protected|public)\b.*\b{re.escape(grep_term)}\b')
+        patterns = [
+            # Explicit visibility modifier (public/protected/private)
+            re.compile(rf'\b(?:private|protected|public)\b.*\b{escaped}\b'),
+            # Package-private or other declarations: returnType methodName(
+            re.compile(rf'(?:(?:static|final|native|synchronized|abstract)\s+)*[\w<>\[\]]+\s+{escaped}\s*\('),
+        ]
 
     with open(src_file, encoding="utf-8") as f:
-        for lineno, line in enumerate(f, start=1):
+        lines = f.readlines()
+
+    for pattern in patterns:
+        for lineno, line in enumerate(lines, start=1):
             if pattern.search(line):
                 return lineno
     return None
@@ -212,12 +231,13 @@ def build_sarif(cve_data: dict, start_line: int, end_line: int) -> dict:
 
 def main(fixes_dir: Path, sarif_dir: Path, tomcat_dir: Path) -> None:
     sarif_dir.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(__file__).parent
 
     for md_path in sorted(fixes_dir.glob("CVE-*.md")):
         cve_data = parse_markdown(md_path)
         cve_id = cve_data["cve_id"]
 
-        src_file = tomcat_dir / cve_data["before_file_path"]
+        src_file = base_dir / cve_data["before_file_path"]
         start_line = find_declaration_line(src_file, cve_data["grep_term"], cve_data["is_class"])
 
         if start_line is None:
