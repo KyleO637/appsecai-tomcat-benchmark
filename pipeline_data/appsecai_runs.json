@@ -12,10 +12,10 @@
     "date_run": null
   },
   "CVE-2023-41080": {
-    "submitted_to_appsecai": true,
+    "submitted_to_appsecai": false,
     "pr_created": null,
     "triage_result": null,
-    "date_run": "2026-06-19"
+    "date_run": null
   },
   "CVE-2023-45648": {
     "submitted_to_appsecai": false,
@@ -114,10 +114,10 @@
     "date_run": null
   },
   "CVE-2026-24880": {
-    "submitted_to_appsecai": true,
+    "submitted_to_appsecai": false,
     "pr_created": null,
     "triage_result": null,
-    "date_run": "2026-06-19"
+    "date_run": null
   },
   "CVE-2026-25854": {
     "submitted_to_appsecai": false,
@@ -144,10 +144,10 @@
     "date_run": null
   },
   "CVE-2026-34483": {
-    "submitted_to_appsecai": true,
+    "submitted_to_appsecai": false,
     "pr_created": null,
     "triage_result": null,
-    "date_run": "2026-06-19"
+    "date_run": null
   },
   "CVE-2026-34487": {
     "submitted_to_appsecai": false,
