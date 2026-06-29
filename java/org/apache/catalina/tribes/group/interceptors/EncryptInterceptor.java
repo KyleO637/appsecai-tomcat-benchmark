@@ -52,12 +52,9 @@ import org.apache.juli.logging.LogFactory;
 public class EncryptInterceptor extends ChannelInterceptorBase implements EncryptInterceptorMBean {
 
     private static final Log log = LogFactory.getLog(EncryptInterceptor.class);
-    /**
-     * String manager for internationalized messages.
-     */
     protected static final StringManager sm = StringManager.getManager(EncryptInterceptor.class);
 
-    private static final String DEFAULT_ENCRYPTION_ALGORITHM = "AES/GCM/NoPadding";
+    private static final String DEFAULT_ENCRYPTION_ALGORITHM = "AES/CBC/PKCS5Padding";
 
     private String providerName;
     private String encryptionAlgorithm = DEFAULT_ENCRYPTION_ALGORITHM;
@@ -67,9 +64,6 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
 
     private BaseEncryptionManager encryptionManager;
 
-    /**
-     * Creates a new encryption interceptor with default settings.
-     */
     public EncryptInterceptor() {
     }
 
@@ -146,17 +140,18 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
             xbb.clear();
             xbb.append(data, 0, data.length);
 
-            super.messageReceived(msg);
         } catch (GeneralSecurityException gse) {
             log.error(sm.getString("encryptInterceptor.decrypt.failed"), gse);
         }
+        super.messageReceived(msg);
     }
 
     /**
      * Sets the encryption algorithm to be used for encrypting and decrypting channel messages. You must specify the
      * <code>algorithm/mode/padding</code>. Information on standard algorithm names may be found in the
      * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">Java
-     * documentation</a>. Default is <code>AES/GCM/NoPadding</code>.
+     * documentation</a>. Default is <code>AES/CBC/PKCS5Padding</code> for backwards compatibility but it is recommended
+     * that <code>AES/GCM/NoPadding</code> is used.
      *
      * @param algorithm The algorithm to use.
      */
@@ -204,9 +199,11 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
     }
 
     /**
-     * Sets the encryption key using a hex-encoded string. Each pair of hex characters represents one byte of the key.
+     * Gets the encryption key being used for encryption and decryption. The key is encoded using hex-encoding where
+     * e.g. the byte <code>0xab</code> will be shown as "ab". The length of the string in characters will be twice the
+     * length of the key in bytes.
      *
-     * @param keyBytes The hex-encoded encryption key.
+     * @param keyBytes The encryption key.
      */
     public void setEncryptionKey(String keyBytes) {
         this.encryptionKeyString = keyBytes;
@@ -237,20 +234,10 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
         return encryptionKeyBytes;
     }
 
-    /**
-     * Returns the hex-encoded encryption key string.
-     *
-     * @return the hex-encoded encryption key, or {@code null} if not set
-     */
     public String getEncryptionKeyString() {
         return encryptionKeyString;
     }
 
-    /**
-     * Sets the hex-encoded encryption key string.
-     *
-     * @param encryptionKeyString the hex-encoded encryption key
-     */
     public void setEncryptionKeyString(String encryptionKeyString) {
         setEncryptionKey(encryptionKeyString);
     }
@@ -379,7 +366,7 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
             throw new IllegalArgumentException(
                     sm.getString("encryptInterceptor.algorithm.unsupported", algorithm));
 
-        } else if ("GCM".equals(algorithmMode) && "NOPADDING".equals(algorithmPadding)) {
+        } else if ("GCM".equalsIgnoreCase(algorithmMode) && "NOPADDING".equals(algorithmPadding)) {
             // Needs a specialised encryption manager to handle the differences between GCM and other modes
             return new GCMEncryptionManager(algorithm, new SecretKeySpec(encryptionKey, algorithmName), providerName);
         }
@@ -388,7 +375,8 @@ public class EncryptInterceptor extends ChannelInterceptorBase implements Encryp
         try {
             return new BaseEncryptionManager(algorithm, new SecretKeySpec(encryptionKey, algorithmName), providerName);
         } catch (NoSuchAlgorithmException | NoSuchPaddingException | NoSuchProviderException ex) {
-            throw new IllegalArgumentException(sm.getString("encryptInterceptor.algorithm.unsupported", algorithm), ex);
+            throw new IllegalArgumentException(sm.getString("encryptInterceptor.algorithm.unsupported", algorithmMode),
+                    ex);
         }
     }
 

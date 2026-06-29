@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,7 +31,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import jakarta.servlet.RequestDispatcher;
-import jakarta.servlet.http.HttpServletResponse;
 
 import org.apache.coyote.ActionCode;
 import org.apache.coyote.CloseNowException;
@@ -46,8 +46,6 @@ import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.buf.ByteChunk;
 import org.apache.tomcat.util.buf.MessageBytes;
-import org.apache.tomcat.util.http.HeaderUtil;
-import org.apache.tomcat.util.http.Method;
 import org.apache.tomcat.util.http.MimeHeaders;
 import org.apache.tomcat.util.http.parser.Host;
 import org.apache.tomcat.util.http.parser.Priority;
@@ -102,14 +100,11 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
     private volatile StringBuilder cookieHeader = null;
     private volatile boolean hostHeaderSeen = false;
 
-    private final Object pendingWindowUpdateForStreamLock = new Object();
+    private Object pendingWindowUpdateForStreamLock = new Object();
     private int pendingWindowUpdateForStream = 0;
 
     private volatile int urgency = Priority.DEFAULT_URGENCY;
     private volatile boolean incremental = Priority.DEFAULT_INCREMENTAL;
-
-    private final Object recycledLock = new Object();
-    private volatile boolean recycled = false;
 
 
     Stream(Integer identifier, Http2UpgradeHandler handler) {
@@ -132,7 +127,7 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             // HTTP/1.1 upgrade
             /*
              * Implementation note. The request passed in is always newly created so it is safe to recycle it for re-use
-             * in the Stream.recycle() method. Need to create a matching, new response.
+             * in the Stream.recyle() method. Need to create a matching, new response.
              */
             this.coyoteRequest = coyoteRequest;
             this.coyoteResponse = new Response();
@@ -162,7 +157,7 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
         this.coyoteResponse.setOutputBuffer(http2OutputBuffer);
         this.coyoteRequest.setResponse(coyoteResponse);
         this.coyoteRequest.protocol().setString("HTTP/2.0");
-        this.coyoteRequest.markStartTime();
+        this.coyoteRequest.setStartTimeNanos(System.nanoTime());
     }
 
 
@@ -322,23 +317,19 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             log.trace(sm.getString("stream.header.debug", getConnectionId(), getIdAsString(), name, value));
         }
 
-        // Field header names being all lower case is enforced in HpackDecoder.
+        // Header names must be lower case
+        if (!name.toLowerCase(Locale.US).equals(name)) {
+            throw new HpackException(sm.getString("stream.header.case", getConnectionId(), getIdAsString(), name));
+        }
 
         if (HTTP_CONNECTION_SPECIFIC_HEADERS.contains(name)) {
-            headerException = new StreamException(
-                    sm.getString("stream.header.connection", getConnectionId(), getIdAsString(), name),
-                    Http2Error.PROTOCOL_ERROR, getIdAsInt());
-            // No need for further processing. The stream will be reset.
-            return;
+            throw new HpackException(
+                    sm.getString("stream.header.connection", getConnectionId(), getIdAsString(), name));
         }
 
         if ("te".equals(name)) {
             if (!"trailers".equals(value)) {
-                headerException =
-                        new StreamException(sm.getString("stream.header.te", getConnectionId(), getIdAsString(), value),
-                                Http2Error.PROTOCOL_ERROR, getIdAsInt());
-                // No need for further processing. The stream will be reset.
-                return;
+                throw new HpackException(sm.getString("stream.header.te", getConnectionId(), getIdAsString(), value));
             }
         }
 
@@ -348,12 +339,8 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             return;
         }
 
-        if (name.isEmpty()) {
-            headerException =
-                    new StreamException(sm.getString("stream.header.empty", getConnectionId(), getIdAsString()),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
-            // No need for further processing. The stream will be reset.
-            return;
+        if (name.length() == 0) {
+            throw new HpackException(sm.getString("stream.header.empty", getConnectionId(), getIdAsString()));
         }
 
         boolean pseudoHeader = name.charAt(0) == ':';
@@ -370,77 +357,59 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             headerState = HEADER_STATE_REGULAR;
         }
 
-        if (headerState == HEADER_STATE_TRAILER && !handler.getProtocol().isTrailerHeaderAllowed(name)) {
-            // Processing trailers and the header is not in the allowed list
-            return;
-        }
-
         switch (name) {
             case ":method": {
-                if (coyoteRequest.getMethod() == null) {
-                    coyoteRequest.setMethod(value);
-                    if (Method.HEAD.equals(value)) {
+                if (coyoteRequest.method().isNull()) {
+                    coyoteRequest.method().setString(value);
+                    if ("HEAD".equals(value)) {
                         configureVoidOutputFilter();
                     }
                 } else {
-                    headerException = new StreamException(
-                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":method"),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    throw new HpackException(
+                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":method"));
                 }
                 break;
             }
             case ":scheme": {
                 if (coyoteRequest.scheme().isNull()) {
                     coyoteRequest.scheme().setString(value);
-                    // Check scheme is consistent with TLS usage
-                    if ("https".equals(value) != handler.getProtocol().getHttp11Protocol().isSSLEnabled()) {
-                        headerException = new StreamException(
-                                sm.getString("stream.header.inconsistentScheme", getConnectionId(), getIdAsString(),
-                                value, Boolean.toString(handler.getProtocol().getHttp11Protocol().isSSLEnabled())),
-                                Http2Error.PROTOCOL_ERROR, getIdAsInt());
-                    }
                 } else {
-                    headerException = new StreamException(
-                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":scheme"),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    throw new HpackException(
+                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":scheme"));
                 }
                 break;
             }
             case ":path": {
                 if (!coyoteRequest.requestURI().isNull()) {
-                    headerException = new StreamException(
-                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":path"),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
-                } else if (value.isEmpty()) {
-                    headerException = new StreamException(
-                            sm.getString("stream.header.noPath", getConnectionId(), getIdAsString()),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
-                } else {
-                    int queryStart = value.indexOf('?');
-                    String uri;
-                    if (queryStart == -1) {
-                        uri = value;
-                    } else {
-                        uri = value.substring(0, queryStart);
-                        String query = value.substring(queryStart + 1);
-                        coyoteRequest.queryString().setString(query);
-                    }
-                    // Bug 61120. Set the URI as bytes rather than String so:
-                    // - any path parameters are correctly processed
-                    // - the normalization security checks are performed that prevent
-                    // directory traversal attacks
-                    byte[] uriBytes = uri.getBytes(StandardCharsets.ISO_8859_1);
-                    coyoteRequest.requestURI().setBytes(uriBytes, 0, uriBytes.length);
+                    throw new HpackException(
+                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":path"));
                 }
+                if (value.length() == 0) {
+                    throw new HpackException(sm.getString("stream.header.noPath", getConnectionId(), getIdAsString()));
+                }
+                int queryStart = value.indexOf('?');
+                String uri;
+                if (queryStart == -1) {
+                    uri = value;
+                } else {
+                    uri = value.substring(0, queryStart);
+                    String query = value.substring(queryStart + 1);
+                    coyoteRequest.queryString().setString(query);
+                }
+                // Bug 61120. Set the URI as bytes rather than String so:
+                // - any path parameters are correctly processed
+                // - the normalization security checks are performed that prevent
+                // directory traversal attacks
+                byte[] uriBytes = uri.getBytes(StandardCharsets.ISO_8859_1);
+                coyoteRequest.requestURI().setBytes(uriBytes, 0, uriBytes.length);
                 break;
             }
             case ":authority": {
                 if (coyoteRequest.serverName().isNull()) {
-                    parseAuthority(value);
+                    parseAuthority(value, false);
                 } else {
-                    headerException = new StreamException(
-                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":authority"),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    throw new HpackException(
+                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), ":authority"));
                 }
                 break;
             }
@@ -459,16 +428,15 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                 if (coyoteRequest.serverName().isNull()) {
                     // No :authority header. This is first host header. Use it.
                     hostHeaderSeen = true;
-                    parseAuthority(value);
+                    parseAuthority(value, true);
                 } else if (!hostHeaderSeen) {
                     // First host header - must be consistent with :authority
                     hostHeaderSeen = true;
                     compareAuthority(value);
                 } else {
                     // Multiple hosts headers - illegal
-                    headerException = new StreamException(
-                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), "host"),
-                            Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    throw new HpackException(
+                            sm.getString("stream.header.duplicate", getConnectionId(), getIdAsString(), "host"));
                 }
                 break;
             }
@@ -479,16 +447,13 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                     setIncremental(p.getIncremental());
                 } catch (IOException ioe) {
                     // Not possible with StringReader
-                } catch (IllegalArgumentException iae) {
-                    // Invalid priority header field values should be ignored
-                    if (log.isTraceEnabled()) {
-                        log.trace(sm.getString("http2Parser.processFramePriorityUpdate.invalid", getConnectionId(),
-                                getIdAsString()), iae);
-                    }
                 }
                 break;
             }
             default: {
+                if (headerState == HEADER_STATE_TRAILER && !handler.getProtocol().isTrailerHeaderAllowed(name)) {
+                    break;
+                }
                 if ("expect".equals(name) && "100-continue".equals(value)) {
                     coyoteRequest.setExpectation(true);
                 }
@@ -496,7 +461,9 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                     headerException = new StreamException(
                             sm.getString("stream.header.unknownPseudoHeader", getConnectionId(), getIdAsString(), name),
                             Http2Error.PROTOCOL_ERROR, getIdAsInt());
-                } else if (headerState == HEADER_STATE_TRAILER) {
+                }
+
+                if (headerState == HEADER_STATE_TRAILER) {
                     // HTTP/2 headers are already always lower case
                     coyoteRequest.getMimeTrailerFields().addValue(name).setString(value);
                 } else {
@@ -513,47 +480,39 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
         streamOutputBuffer.closed = true;
     }
 
-    private void parseAuthority(String value) {
+    private void parseAuthority(String value, boolean host) throws HpackException {
         int i;
         try {
             i = Host.parse(value);
-            if (i > -1) {
-                coyoteRequest.serverName().setString(value.substring(0, i));
-                coyoteRequest.setServerPort(Integer.parseInt(value.substring(i + 1)));
-            } else {
-                coyoteRequest.serverName().setString(value);
-            }
         } catch (IllegalArgumentException iae) {
-            // Bad :authority / host header -> 400 response
-            coyoteRequest.setNote(Request.NOTE_BAD_REQUEST, Boolean.TRUE);
+            // Host value invalid
+            throw new HpackException(sm.getString("stream.header.invalid", getConnectionId(), getIdAsString(),
+                    host ? "host" : ":authority", value));
         }
-        // Match host name with SNI if required
-        if (!handler.getProtocol().getHttp11Protocol().checkSni(handler.getSniHostName(),
-                coyoteRequest.serverName().getString())) {
-            headerException = new StreamException(sm.getString("stream.host.sni", getConnectionId(), getIdAsString(),
-                    value, handler.getSniHostName()), Http2Error.PROTOCOL_ERROR, getIdAsInt());
+        if (i > -1) {
+            coyoteRequest.serverName().setString(value.substring(0, i));
+            coyoteRequest.setServerPort(Integer.parseInt(value.substring(i + 1)));
+        } else {
+            coyoteRequest.serverName().setString(value);
         }
     }
 
 
-    private void compareAuthority(String value) {
+    private void compareAuthority(String value) throws HpackException {
         int i;
         try {
             i = Host.parse(value);
-            if (i == -1 &&
-                    (!value.equals(coyoteRequest.serverName().getString()) || coyoteRequest.getServerPort() != -1) ||
-                    i > -1 && ((!value.substring(0, i).equals(coyoteRequest.serverName().getString()) ||
-                            Integer.parseInt(value.substring(i + 1)) != coyoteRequest.getServerPort()))) {
-                // Host value inconsistent
-                headerException = new StreamException(
-                        sm.getString("stream.host.inconsistent", getConnectionId(), getIdAsString(), value,
-                                coyoteRequest.serverName().getString(),
-                                Integer.toString(coyoteRequest.getServerPort())),
-                        Http2Error.PROTOCOL_ERROR, getIdAsInt());
-            }
         } catch (IllegalArgumentException iae) {
-            // Bad :authority / host header -> 400 response
-            coyoteRequest.setNote(Request.NOTE_BAD_REQUEST, Boolean.TRUE);
+            // Host value invalid
+            throw new HpackException(
+                    sm.getString("stream.header.invalid", getConnectionId(), getIdAsString(), "host", value));
+        }
+        if (i == -1 && (!value.equals(coyoteRequest.serverName().getString()) || coyoteRequest.getServerPort() != -1) ||
+                i > -1 && ((!value.substring(0, i).equals(coyoteRequest.serverName().getString()) ||
+                        Integer.parseInt(value.substring(i + 1)) != coyoteRequest.getServerPort()))) {
+            // Host value inconsistent
+            throw new HpackException(sm.getString("stream.host.inconsistent", getConnectionId(), getIdAsString(), value,
+                    coyoteRequest.serverName().getString(), Integer.toString(coyoteRequest.getServerPort())));
         }
 
     }
@@ -577,32 +536,12 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
     }
 
 
-    final boolean receivedEndOfHeaders() throws StreamException {
-        boolean missingHeader = false;
-
-        if (coyoteRequest.getMethod() == null) {
-            missingHeader = true;
-        } else if (Method.CONNECT.equals(coyoteRequest.getMethod())) {
-            // CONNECT only
-            if (!coyoteRequest.scheme().isNull() || !coyoteRequest.requestURI().isNull()) {
-                throw new StreamException(sm.getString("stream.header.invalidConnect", getConnectionId(),
-                        getIdAsString()), Http2Error.PROTOCOL_ERROR, getIdAsInt());
-            }
-            if (coyoteRequest.serverName().isNull()) {
-                missingHeader = true;
-            }
-        } else {
-            // All other methods
-            if (coyoteRequest.scheme().isNull() || coyoteRequest.requestURI().isNull()) {
-                missingHeader = true;
-            }
+    final boolean receivedEndOfHeaders() throws ConnectionException {
+        if (coyoteRequest.method().isNull() || coyoteRequest.scheme().isNull() ||
+                !coyoteRequest.method().equals("CONNECT") && coyoteRequest.requestURI().isNull()) {
+            throw new ConnectionException(sm.getString("stream.header.required", getConnectionId(), getIdAsString()),
+                    Http2Error.PROTOCOL_ERROR);
         }
-
-        if (missingHeader) {
-            throw new StreamException(sm.getString("stream.header.required", getConnectionId(), getIdAsString()),
-                    Http2Error.PROTOCOL_ERROR, getIdAsInt());
-        }
-
         // Cookie headers need to be concatenated into a single header
         // See RFC 7540 8.1.2.5
         // Can only do this once the headers are fully received
@@ -625,8 +564,8 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
 
 
     final void writeTrailers() throws IOException {
-        Supplier<Map<String,String>> trailerFieldsSupplier = coyoteResponse.getTrailerFields();
-        if (trailerFieldsSupplier == null) {
+        Supplier<Map<String,String>> supplier = coyoteResponse.getTrailerFields();
+        if (supplier == null) {
             // No supplier was set, end of stream will already have been sent
             return;
         }
@@ -637,22 +576,17 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
          */
         MimeHeaders mimeHeaders = new MimeHeaders();
 
-        Map<String,String> trailerFields = trailerFieldsSupplier.get();
-        if (trailerFields == null) {
-            trailerFields = Collections.emptyMap();
+        Map<String,String> headerMap = supplier.get();
+        if (headerMap == null) {
+            headerMap = Collections.emptyMap();
         }
 
         // Copy the contents of the Map to the MimeHeaders
         // TODO: Is there benefit in refactoring this? Is MimeHeaders too
         // heavyweight? Can we reduce the copy/conversions?
-        for (Map.Entry<String,String> trailerField : trailerFields.entrySet()) {
-            // Ignore disallowed headers
-            if (HeaderUtil.isHeaderDisallowedInTrailers(trailerField.getKey())) {
-                continue;
-            }
-
-            MessageBytes mb = mimeHeaders.addValue(trailerField.getKey());
-            mb.setString(trailerField.getValue());
+        for (Map.Entry<String,String> headerEntry : headerMap.entrySet()) {
+            MessageBytes mb = mimeHeaders.addValue(headerEntry.getKey());
+            mb.setString(headerEntry.getValue());
         }
 
         handler.writeHeaders(this, mimeHeaders, true, Constants.DEFAULT_HEADERS_FRAME_SIZE);
@@ -667,7 +601,7 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
     final void writeEarlyHints() throws IOException {
         MimeHeaders headers = coyoteResponse.getMimeHeaders();
         String originalStatus = headers.getHeader(":status");
-        headers.setValue(":status").setString(Integer.toString(HttpServletResponse.SC_EARLY_HINTS));
+        headers.setValue(":status").setString("103");
         try {
             handler.writeHeaders(this, headers, false, Constants.DEFAULT_HEADERS_FRAME_SIZE);
         } finally {
@@ -702,22 +636,22 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
     }
 
 
-    final void receivedStartOfHeaders(boolean headersEndStream) {
+    final void receivedStartOfHeaders(boolean headersEndStream) throws Http2Exception {
         if (headerState == HEADER_STATE_START) {
             headerState = HEADER_STATE_PSEUDO;
             handler.getHpackDecoder().setMaxHeaderCount(handler.getProtocol().getMaxHeaderCount());
             handler.getHpackDecoder().setMaxHeaderSize(handler.getProtocol().getMaxHeaderSize());
         } else if (headerState == HEADER_STATE_PSEUDO || headerState == HEADER_STATE_REGULAR) {
             // Trailer headers MUST include the end of stream flag
-            if (!headersEndStream) {
-                headerException = new StreamException(
+            if (headersEndStream) {
+                headerState = HEADER_STATE_TRAILER;
+                handler.getHpackDecoder().setMaxHeaderCount(handler.getProtocol().getMaxTrailerCount());
+                handler.getHpackDecoder().setMaxHeaderSize(handler.getProtocol().getMaxTrailerSize());
+            } else {
+                throw new ConnectionException(
                         sm.getString("stream.trailerHeader.noEndOfStream", getConnectionId(), getIdAsString()),
-                        Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                        Http2Error.PROTOCOL_ERROR);
             }
-            // Always process headers to keep HPack encoder/decoder in sync
-            headerState = HEADER_STATE_TRAILER;
-            handler.getHpackDecoder().setMaxHeaderCount(handler.getProtocol().getMaxTrailerCount());
-            handler.getHpackDecoder().setMaxHeaderSize(handler.getProtocol().getMaxTrailerSize());
         }
         // Parser will catch attempt to send a headers frame after the stream
         // has closed.
@@ -726,24 +660,24 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
 
 
     @Override
-    final void receivedData(int dataLength) throws Http2Exception {
-        contentLengthReceived += dataLength;
+    final void receivedData(int payloadSize) throws Http2Exception {
+        contentLengthReceived += payloadSize;
         long contentLengthHeader = coyoteRequest.getContentLengthLong();
         if (contentLengthHeader > -1 && contentLengthReceived > contentLengthHeader) {
-            throw new StreamException(
+            throw new ConnectionException(
                     sm.getString("stream.header.contentLength", getConnectionId(), getIdAsString(),
                             Long.valueOf(contentLengthHeader), Long.valueOf(contentLengthReceived)),
-                    Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    Http2Error.PROTOCOL_ERROR);
         }
     }
 
 
-    final void receivedEndOfStream() throws Http2Exception {
+    final void receivedEndOfStream() throws ConnectionException {
         if (isContentLengthInconsistent()) {
-            throw new StreamException(
+            throw new ConnectionException(
                     sm.getString("stream.header.contentLength", getConnectionId(), getIdAsString(),
                             Long.valueOf(coyoteRequest.getContentLengthLong()), Long.valueOf(contentLengthReceived)),
-                    Http2Error.PROTOCOL_ERROR, getIdAsInt());
+                    Http2Error.PROTOCOL_ERROR);
         }
         state.receivedEndOfStream();
         inputBuffer.notifyEof();
@@ -752,7 +686,10 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
 
     final boolean isContentLengthInconsistent() {
         long contentLengthHeader = coyoteRequest.getContentLengthLong();
-        return contentLengthHeader > -1 && contentLengthReceived != contentLengthHeader;
+        if (contentLengthHeader > -1 && contentLengthReceived != contentLengthHeader) {
+            return true;
+        }
+        return false;
     }
 
 
@@ -835,15 +772,20 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
         } else {
             handler.closeConnection(http2Exception);
         }
-        replace();
+        recycle();
     }
 
 
     /*
-     * This method calls the handler to replace this stream with an implementation that uses less memory. This is useful
-     * because Stream instances are retained for a period after the Stream closes.
+     * This method is called recycle for consistency with the rest of the Tomcat code base. Currently, it calls the
+     * handler to replace this stream with an implementation that uses less memory. It does not fully recycle the Stream
+     * ready for re-use since Stream objects are not re-used. This is useful because Stream instances are retained for a
+     * period after the Stream closes.
      */
-    final void replace() {
+    final void recycle() {
+        if (log.isTraceEnabled()) {
+            log.trace(sm.getString("stream.recycle", getConnectionId(), getIdAsString()));
+        }
         int remaining;
         // May be null if stream was closed before any DATA frames were processed.
         ByteBuffer inputByteBuffer = getInputByteBuffer(false);
@@ -853,43 +795,6 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             remaining = inputByteBuffer.remaining();
         }
         handler.replaceStream(this, new RecycledStream(getConnectionId(), getIdentifier(), state, remaining));
-    }
-
-
-    /*
-     * This method is called recycle for consistency with the rest of the Tomcat code base. It does not recycle the
-     * Stream since Stream objects are not re-used. It does recycle the request and response objects and ensures that
-     * this is only done once.
-     *
-     * replace() should have been called before calling this method.
-     *
-     * It is important that this method is not called until any concurrent processing for the stream has completed. This
-     * is currently achieved by:
-     *
-     * - only the StreamProcessor calls this method
-     *
-     * - the Http2UpgradeHandler does not call this method
-     *
-     * - this method is called once the StreamProcessor considers the Stream closed
-     *
-     * In theory, the protection against duplicate calls is not required in this method (the code in StreamProcessor
-     * should be sufficient) but it is implemented as precaution along with the WARN level logging.
-     */
-    final void recycle() {
-        if (recycled) {
-            log.warn(sm.getString("stream.recycle.duplicate", getConnectionId(), getIdAsString()));
-            return;
-        }
-        synchronized (recycledLock) {
-            if (recycled) {
-                log.warn(sm.getString("stream.recycle.duplicate", getConnectionId(), getIdAsString()));
-                return;
-            }
-            recycled = true;
-        }
-        if (log.isTraceEnabled()) {
-            log.trace(sm.getString("stream.recycle.first", getConnectionId(), getIdAsString()));
-        }
         coyoteRequest.recycle();
         coyoteResponse.recycle();
         handler.getProtocol().pushRequestAndResponse(coyoteRequest);
@@ -1119,8 +1024,12 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                 // Bug 63682
                 // Only want to return false if the window size is zero AND we are
                 // already waiting for an allocation.
-                return (getWindowSize() <= 0 || !allocationManager.isWaitingForStream()) &&
-                        (handler.getWindowSize() <= 0 || !allocationManager.isWaitingForConnection()) && !dataLeft;
+                if (getWindowSize() > 0 && allocationManager.isWaitingForStream() ||
+                        handler.getWindowSize() > 0 && allocationManager.isWaitingForConnection() || dataLeft) {
+                    return false;
+                } else {
+                    return true;
+                }
             } finally {
                 writeLock.unlock();
             }
@@ -1155,8 +1064,8 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
             /*
              * This method should only be called during blocking I/O. All the Servlet API calls that end up here are
              * illegal during non-blocking I/O. Servlet 5.4. However, the wording Servlet specification states that the
-             * behaviour is undefined so we do the best we can, which is to perform a flush using blocking I/O or
-             * non-blocking I/O based depending on which is currently in use.
+             * behaviour is undefined so we do the best we can which is to perform a flush using blocking I/O or
+             * non-blocking I/O based depending which is currently in use.
              */
             flush(getCoyoteResponse().getWriteListener() == null);
         }
@@ -1238,7 +1147,7 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
 
             ensureBuffersExist();
 
-            int written;
+            int written = -1;
 
             // It is still possible that the stream has been closed and inBuffer
             // set to null between the call to ensureBuffersExist() above and
@@ -1468,22 +1377,11 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                 readStateLock.unlock();
             }
 
-            /*
-             * There is a potential race between a reset being received by the Http2UpgradeHandler and the
-             * StreamProcessor recycling the Stream. The use of recycledLock ensures that an attempt is not made to
-             * notify the ReadListener after the Stream has been recycled.
-             */
-            if (!recycled) {
-                synchronized (recycledLock) {
-                    if (!recycled) {
-                        // Trigger ReadListener.onError()
-                        getCoyoteRequest().setAttribute(RequestDispatcher.ERROR_EXCEPTION,
-                                new IOException(sm.getString("stream.clientResetRequest")));
-                        coyoteRequest.action(ActionCode.DISPATCH_ERROR, null);
-                        coyoteRequest.action(ActionCode.DISPATCH_EXECUTE, null);
-                    }
-                }
-            }
+            // Trigger ReadListener.onError()
+            getCoyoteRequest().setAttribute(RequestDispatcher.ERROR_EXCEPTION,
+                    new IOException(sm.getString("stream.clientResetRequest")));
+            coyoteRequest.action(ActionCode.DISPATCH_ERROR, null);
+            coyoteRequest.action(ActionCode.DISPATCH_EXECUTE, null);
         }
 
         @Override
@@ -1504,7 +1402,7 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                 readStateLock.unlock();
             }
             if (inBuffer != null) {
-                int unreadByteCount;
+                int unreadByteCount = 0;
                 synchronized (inBuffer) {
                     unreadByteCount = inBuffer.position();
                     if (log.isTraceEnabled()) {
@@ -1514,7 +1412,6 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
                         inBuffer.position(0);
                         inBuffer.limit(inBuffer.limit() - unreadByteCount);
                     }
-                    inBuffer.notifyAll();
                 }
                 // Do this outside of the sync because:
                 // - it doesn't need to be inside the sync

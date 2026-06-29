@@ -33,6 +33,8 @@ import util.HTMLFilter;
 
 /**
  * Example servlet showing request headers
+ *
+ * @author James Duncan Davidson &lt;duncan@eng.sun.com>
  */
 public class RequestHeaderExample extends HttpServlet {
 
@@ -136,20 +138,8 @@ public class RequestHeaderExample extends HttpServlet {
             String headerName = e.nextElement();
             String headerValue = request.getHeader(headerName);
 
-            out.append("{\"").append(JSONFilter.escape(headerName)).append("\":\"");
-
-
-            if (headerName.toLowerCase(Locale.ENGLISH).contains("cookie")) {
-                HttpSession session = request.getSession(false);
-                String sessionId = null;
-                if (session != null) {
-                    sessionId = session.getId();
-                }
-                out.append(JSONFilter.escape(CookieFilter.filter(headerValue, sessionId)));
-            } else {
-                out.append(JSONFilter.escape(headerValue));
-            }
-            out.append("\"}");
+            out.append("{\"").append(JSONFilter.escape(headerName)).append("\":\"")
+                    .append(JSONFilter.escape(headerValue)).append("\"}");
 
             if (e.hasMoreElements()) {
                 out.append(',');
