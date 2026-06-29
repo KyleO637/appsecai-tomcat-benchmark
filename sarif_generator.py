@@ -90,6 +90,9 @@ def parse_markdown(path: Path) -> dict:
                         data.update(_parse_affected_component(value))
                     elif field in ("Fix Commit", "Fix Commit(s)"):
                         data["fix_commits"] = re.findall(r'`([0-9a-f]+)`', value)
+                    elif field == "Line Override":
+                        lo_m = re.match(r'(\d+)', value)
+                        data["line_override"] = int(lo_m.group(1)) if lo_m else None
                 elif line.startswith("## Before"):
                     state = "SCANNING_BEFORE"
 
@@ -238,11 +241,14 @@ def main(fixes_dir: Path, sarif_dir: Path, tomcat_dir: Path) -> None:
         cve_id = cve_data["cve_id"]
 
         src_file = base_dir / cve_data["before_file_path"]
-        start_line = find_declaration_line(src_file, cve_data["grep_term"], cve_data["is_class"])
 
-        if start_line is None:
-            print(f"WARN: {cve_data['grep_term']!r} not found in {src_file}, using startLine=1")
-            start_line = 1
+        if cve_data.get("line_override"):
+            start_line = cve_data["line_override"]
+        else:
+            start_line = find_declaration_line(src_file, cve_data["grep_term"], cve_data["is_class"])
+            if start_line is None:
+                print(f"WARN: {cve_data['grep_term']!r} not found in {src_file}, using startLine=1")
+                start_line = 1
 
         end_line = start_line + len(cve_data["before_lines"]) - 1
 
