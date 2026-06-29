@@ -1167,15 +1167,15 @@ public abstract class AbstractAccessLogValve extends ValveBase implements Access
                     // No method means no request line
                     buf.append('-');
                 } else {
-                    buf.append(request.getMethod());
+                    escapeAndAppend(request.getMethod(), buf);
                     buf.append(' ');
-                    buf.append(request.getRequestURI());
+                    escapeAndAppend(request.getRequestURI(), buf);
                     if (request.getQueryString() != null) {
                         buf.append('?');
-                        buf.append(request.getQueryString());
+                        escapeAndAppend(request.getQueryString(), buf);
                     }
                     buf.append(' ');
-                    buf.append(request.getProtocol());
+                    escapeAndAppend(request.getProtocol(), buf);
                 }
             } else {
                 buf.append('-');
@@ -1448,7 +1448,7 @@ public abstract class AbstractAccessLogValve extends ValveBase implements Access
         @Override
         public void addElement(CharArrayWriter buf, Request request, Response response, long time) {
             if (request != null) {
-                buf.append(request.getRequestURI());
+                escapeAndAppend(request.getRequestURI(), buf);
             } else {
                 buf.append('-');
             }
@@ -1914,16 +1914,15 @@ public abstract class AbstractAccessLogValve extends ValveBase implements Access
      * - %to trailer response header - %V server name per UseCanonicalName setting
      *
      * The following escaped elements are not escaped in Tomcat because values that would require escaping are rejected
-     * before they reach the AccessLogValve: - %h remote host - %H request protocol - %m request method - %q query
-     * string - %r request line - %U request URI - %v canonical server name
+     * before they reach the AccessLogValve: - %h remote host - %v canonical server name
      *
      * The following escaped elements are supported by Tomcat: - %{}i request header - %{}o response header - %u remote
-     * user
+     * user - %H request protocol - %m request method - %q query string - %r request line - %U request URI
      *
      * The following additional Tomcat elements are escaped for consistency: - %{}c cookie value - %{}r request
      * attribute - %{}s session attribute
      *
-     * giving a total of 6 elements that are escaped in Tomcat.
+     * giving a total of 9 elements that are escaped in Tomcat.
      *
      * Quoting from the httpd docs: "...non-printable and other special characters in %r, %i and %o are escaped using
      * \xhh sequences, where hh stands for the hexadecimal representation of the raw byte. Exceptions from this rule are
