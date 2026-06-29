@@ -159,7 +159,7 @@ def find_declaration_line(src_file: Path, grep_term: str, is_class: bool) -> int
     return None
 
 
-def build_sarif(cve_data: dict, start_line: int, end_line: int) -> dict:
+def build_sarif(cve_data: dict, start_line: int, end_line: int, snippet_lines: list | None = None) -> dict:
     cve_id = cve_data["cve_id"]
     cwe_id = cve_data["cwe_id"]
     cwe_desc = cve_data["cwe_description"]
@@ -174,7 +174,7 @@ def build_sarif(cve_data: dict, start_line: int, end_line: int) -> dict:
         methods_str = ", ".join(all_methods)
         msg = f"{cve_id} ({severity}): {cwe_id} {cwe_desc} in {filename}. Affected: {methods_str}."
 
-    snippet = "\n".join(cve_data["before_lines"])
+    snippet = "\n".join(snippet_lines if snippet_lines is not None else cve_data["before_lines"])
 
     return {
         "version": "2.1.0",
@@ -246,7 +246,19 @@ def main(fixes_dir: Path, sarif_dir: Path, tomcat_dir: Path) -> None:
 
         end_line = start_line + len(cve_data["before_lines"]) - 1
 
-        sarif = build_sarif(cve_data, start_line, end_line)
+        # Resolve snippet and cap endLine against actual file content.
+        # When startLine is precise (>1): use actual file lines so snippet matches
+        # what AppSecAI reads from the committed source.
+        # When startLine=1 (fallback): keep fix-file Before lines so the snippet
+        # still describes the vulnerable code, but still cap endLine at file length.
+        snippet_lines = None
+        if src_file.exists():
+            actual_lines = src_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            end_line = min(end_line, len(actual_lines))
+            if start_line > 1:
+                snippet_lines = actual_lines[start_line - 1 : end_line]
+
+        sarif = build_sarif(cve_data, start_line, end_line, snippet_lines)
 
         out_path = sarif_dir / f"{cve_id}.sarif"
         out_path.write_text(json.dumps(sarif, indent=2, ensure_ascii=False), encoding="utf-8")
