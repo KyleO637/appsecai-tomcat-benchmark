@@ -48,10 +48,10 @@
     "date_run": "2026-06-29"
   },
   "CVE-2024-52318": {
-    "submitted_to_appsecai": false,
+    "submitted_to_appsecai": true,
     "pr_created": null,
     "triage_result": null,
-    "date_run": null
+    "date_run": "2026-07-02"
   },
   "CVE-2024-54677": {
     "submitted_to_appsecai": true,
