@@ -2,6 +2,18 @@ name: AppSecAI Security Analysis
 
 on:
   workflow_dispatch:
+    inputs:
+      cve_id:
+        description: 'Single CVE to submit (e.g. CVE-2023-28709). Leave blank to submit all pending.'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      cve_id:
+        description: 'Single CVE to submit. Leave blank to submit all pending.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -13,6 +25,7 @@ jobs:
     env:
       PROCESSING_MODE: group_cc
       AUTO_CREATE_PRS: 'true'
+      CVE_FILTER: ${{ inputs.cve_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,11 +40,23 @@ jobs:
           from pathlib import Path
 
           runs = json.loads(Path('pipeline_data/appsecai_runs.json').read_text())
-          pending = [
-              f"sarif/{cve}.sarif"
-              for cve, v in runs.items()
-              if not v['submitted_to_appsecai']
-          ]
+          cve_filter = os.environ.get('CVE_FILTER', '').strip()
+
+          if cve_filter:
+              if cve_filter not in runs:
+                  print(f"ERROR: {cve_filter} not found in appsecai_runs.json")
+                  raise SystemExit(1)
+              if runs[cve_filter]['submitted_to_appsecai']:
+                  print(f"{cve_filter} already submitted — nothing to do.")
+                  pending = []
+              else:
+                  pending = [f"sarif/{cve_filter}.sarif"]
+          else:
+              pending = [
+                  f"sarif/{cve}.sarif"
+                  for cve, v in runs.items()
+                  if not v['submitted_to_appsecai']
+              ]
 
           if not pending:
               print("No pending CVEs — nothing to submit.")
