@@ -69,7 +69,10 @@ def count_java_lines(diff_text: str) -> int:
 
 
 PROMPT_TEMPLATE = """\
-You are a security engineer writing a CVE fix documentation file for a benchmark.
+You are a security engineer writing a CVE fix documentation file for an AppSecAI benchmark.
+
+## Your task
+Analyze the git diff below and produce a `fixes/{cve_id}_before_after.md` file documenting the vulnerability and its fix.
 
 ## CVE Metadata
 - CVE ID: {cve_id}
@@ -83,60 +86,88 @@ You are a security engineer writing a CVE fix documentation file for a benchmark
 {diff_text}
 ```
 
-## Task
-Write a `fixes/{cve_id}_before_after.md` file that documents this vulnerability and its fix.
-The file MUST follow this EXACT structure (sarif_generator.py parses it):
+## Format — follow this example EXACTLY
 
-```
-# {cve_id} — Before/After Fix
+Here is a completed example for a different CVE. Match this structure precisely:
+
+---
+# CVE-2023-28709 — Before/After Fix
 
 | Field | Value |
 |---|---|
-| **CVE ID** | {cve_id} |
-| **CWE** | CWE-NNN (Short CWE name) |
-| **Severity** | {severity} |
-| **Affected Component** | `FileName.java` → `methodName()` |
-| **Fix Commit** | `{fix_commit}` |
-| **D1 Score** | {d1_score} ({lines_changed} Java lines changed) |
-| **Fix Complexity Notes** | One or two sentences about what makes this fix tricky for an AI. |
+| **CVE ID** | CVE-2023-28709 |
+| **CWE** | CWE-193 (Off-by-one Error) |
+| **Severity** | Moderate |
+| **Affected Component** | `Parameters.java` → `addParameter()` |
+| **Fix Commit** | `d53d8e7f` |
+| **Follow-up Commit** | *(none — single-version fix)* |
+| **D1 Score** | 1 (4 Java lines changed, ≤10) |
+| **Fix Complexity Notes** | One method, two-line structural change: move the increment after the guard and tighten `>` to `>=`. The subtle issue is that pre-incrementing before the check means the count reaches `limit+1` on the failing call, not `limit`. Any subsequent parsing code that reads `parameterCount` as an indicator of stored parameters would see a value one higher than the actual map size, which could be exploited across repeated partial parse attempts to evade the limit. An AI that swaps `>` to `>=` without also moving the increment (or vice versa) will produce an off-by-one in the other direction. |
 
 ---
 
 ## Before (Vulnerable)
 
-`java/path/to/FileName.java`
+`java/org/apache/tomcat/util/http/Parameters.java`
 
 ```java
-    // The vulnerable method or block, as it appeared before the fix.
-    // Include enough context (full method body) to be self-contained.
+    public void addParameter(String key, String value) throws IllegalStateException {{
+
+        if (key == null) {{
+            return;
+        }}
+
+        parameterCount++;
+        if (limit > -1 && parameterCount > limit) {{
+            setParseFailedReason(FailReason.TOO_MANY_PARAMETERS);
+            throw new IllegalStateException(sm.getString("parameters.maxCountFail", Integer.valueOf(limit)));
+        }}
+
+        paramHashValues.computeIfAbsent(key, k -> new ArrayList<>(1)).add(value);
+    }}
 ```
 
 ---
 
 ## After (Patched)
 
-`java/path/to/FileName.java`
+`java/org/apache/tomcat/util/http/Parameters.java`
 
 ```java
-    // The fixed method or block.
+    public void addParameter(String key, String value) throws IllegalStateException {{
+
+        if (key == null) {{
+            return;
+        }}
+
+        if (limit > -1 && parameterCount >= limit) {{
+            setParseFailedReason(FailReason.TOO_MANY_PARAMETERS);
+            throw new IllegalStateException(sm.getString("parameters.maxCountFail", Integer.valueOf(limit)));
+        }}
+        parameterCount++;
+
+        paramHashValues.computeIfAbsent(key, k -> new ArrayList<>(1)).add(value);
+    }}
 ```
 
 ---
 
 ## Explanation
 
-Two or three paragraphs explaining: what the vulnerability was, how it could be exploited,
-and exactly what the fix does and why it works.
-```
+`addParameter` enforces a configurable ceiling on the total number of request parameters to prevent memory exhaustion attacks. In the original code, `parameterCount` was incremented before the limit check, meaning the counter reached `limit + 1` on the failing call even though the parameter was never stored.
 
-## Rules
-- Identify the CWE from the nature of the vulnerability (e.g. CWE-193 for off-by-one, CWE-79 for XSS, CWE-400 for resource exhaustion).
-- **Affected Component** must be: `` `FileName.java` → `methodName()` `` (method-level) or `` `FileName.java` → `ClassName.method()` `` (if the method is on an inner/named class).
-- The file path in `## Before` and `## After` must start with `java/` (matching the repo's java/ directory).
-- The Before block must show the vulnerable code exactly as it was (from `-` lines in the diff, with context).
-- The After block must show the fixed code (from `+` lines, with context).
-- Do not include diff markers (`+`, `-`) in the code blocks — show clean Java.
-- Output ONLY the markdown file content, nothing else. No preamble, no explanation outside the markdown.
+Changing to `parameterCount >= limit` with a post-increment enforces the boundary at exactly `limit` parameters, making `parameterCount` an accurate count of successfully added parameters at all times.
+
+---
+
+## Rules for your output
+- Determine the CWE from the nature of the vulnerability (e.g. CWE-193 off-by-one, CWE-79 XSS, CWE-400 resource exhaustion, CWE-20 improper input validation).
+- **Affected Component** must be: `` `FileName.java` → `methodName()` `` (method-level) or `` `FileName.java` → `ClassName.method()` `` (inner/named class).
+- File paths in `## Before` and `## After` must start with `java/` (e.g. `java/org/apache/...`).
+- Before block: full method body as it was before the fix (clean Java, no `+`/`-` diff markers).
+- After block: full method body after the fix (clean Java, no `+`/`-` diff markers).
+- Fix Complexity Notes: explain what makes this fix subtle or easy to get wrong for an AI — what an AI might do incorrectly and why.
+- Output ONLY the markdown content. No preamble, no explanation, nothing outside the markdown.
 """
 
 
