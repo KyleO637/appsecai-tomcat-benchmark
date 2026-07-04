@@ -1,9 +1,9 @@
 {
   "CVE-2023-28709": {
-    "submitted_to_appsecai": false,
+    "submitted_to_appsecai": true,
     "pr_created": null,
     "triage_result": null,
-    "date_run": null
+    "date_run": "2026-07-04"
   },
   "CVE-2023-34981": {
     "submitted_to_appsecai": false,
