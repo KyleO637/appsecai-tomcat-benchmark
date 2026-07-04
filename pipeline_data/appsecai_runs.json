@@ -138,10 +138,10 @@
     "date_run": null
   },
   "CVE-2026-29146": {
-    "submitted_to_appsecai": false,
+    "submitted_to_appsecai": true,
     "pr_created": null,
     "triage_result": null,
-    "date_run": null
+    "date_run": "2026-07-04"
   },
   "CVE-2026-34483": {
     "submitted_to_appsecai": false,
