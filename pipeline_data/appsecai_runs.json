@@ -102,10 +102,10 @@
     "date_run": null
   },
   "CVE-2025-66614": {
-    "submitted_to_appsecai": false,
+    "submitted_to_appsecai": true,
     "pr_created": null,
     "triage_result": null,
-    "date_run": null
+    "date_run": "2026-07-04"
   },
   "CVE-2026-24733": {
     "submitted_to_appsecai": false,
