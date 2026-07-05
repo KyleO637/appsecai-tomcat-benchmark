@@ -75,8 +75,8 @@ def find_appsecai_pr(cve_id: str, repo: str) -> dict | None:
             "gh", "pr", "list",
             "--repo", repo,
             "--state", "open",
-            "--json", "number,url,headRefName,createdAt",
-            "--limit", "20",
+            "--json", "number,url,headRefName,title,createdAt",
+            "--limit", "50",
         ],
         capture_output=True, text=True,
     )
@@ -84,13 +84,17 @@ def find_appsecai_pr(cve_id: str, repo: str) -> dict | None:
         return None
 
     prs = json.loads(result.stdout)
-    appsecai_prs = [p for p in prs if p["headRefName"].startswith("appsecai/fix-group/")]
-    if not appsecai_prs:
-        return None
 
-    # Most recently created AppSecAI PR is the one from this run
-    appsecai_prs.sort(key=lambda p: p["createdAt"], reverse=True)
-    return appsecai_prs[0]
+    # Match by CVE ID in the PR title — AppSecAI titles include the CVE ID directly
+    matches = [
+        p for p in prs
+        if p["headRefName"].startswith("appsecai/fix-group/") and cve_id in p["title"]
+    ]
+    if matches:
+        matches.sort(key=lambda p: p["createdAt"], reverse=True)
+        return matches[0]
+
+    return None
 
 
 def fetch_pr_diff(pr_number: int, repo: str) -> str:
