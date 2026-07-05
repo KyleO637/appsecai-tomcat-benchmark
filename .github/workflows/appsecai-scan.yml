@@ -78,12 +78,24 @@ jobs:
           print(f"Marked {cve_id} as submitted on {today}")
           PYEOF
 
+      - name: Organize benchmark data
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/organize_benchmark.py \
+            --cve-id "$CVE_ID" \
+            --fixes-dir fixes \
+            --candidates pipeline_data/cve_candidates.json \
+            --benchmark-dir benchmark \
+            --repo "${{ github.repository }}"
+
       - name: Commit generated files
         if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add fixes/ sarif/ pipeline_data/appsecai_runs.json
+          git add fixes/ sarif/ pipeline_data/appsecai_runs.json benchmark/
           git diff --cached --quiet || git commit -m "chore: add generated files for $CVE_ID [skip ci]"
           git pull --rebase origin main
           git push
