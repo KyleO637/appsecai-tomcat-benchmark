@@ -69,13 +69,18 @@ jobs:
           today = date.today().isoformat()
 
           if cve_id not in runs:
-              runs[cve_id] = {'submitted_to_appsecai': False, 'pr_created': None, 'triage_result': None, 'date_run': None}
+              runs[cve_id] = {'submitted_to_appsecai': True, 'runs': []}
 
           runs[cve_id]['submitted_to_appsecai'] = True
-          runs[cve_id]['date_run'] = today
+          runs[cve_id].setdefault('runs', []).append({
+              'pr_created': None,
+              'date': today,
+              'system_version': None,
+              'triage_result': None,
+          })
 
           runs_path.write_text(json.dumps(runs, indent=2) + '\n')
-          print(f"Marked {cve_id} as submitted on {today}")
+          print(f"Appended run for {cve_id} on {today}")
           PYEOF
 
       - name: Organize benchmark data
