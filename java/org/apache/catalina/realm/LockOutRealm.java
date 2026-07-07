@@ -20,6 +20,7 @@ import java.io.Serial;
 import java.security.Principal;
 import java.security.cert.X509Certificate;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -209,7 +210,7 @@ public class LockOutRealm extends CombinedRealm {
     public boolean isLocked(String username) {
         LockRecord lockRecord;
         synchronized (this) {
-            lockRecord = failedUsers.get(username);
+            lockRecord = failedUsers.get(username.toLowerCase(Locale.ENGLISH));
         }
 
         // No lock record means user can't be locked
@@ -230,7 +231,7 @@ public class LockOutRealm extends CombinedRealm {
      */
     private synchronized void registerAuthSuccess(String username) {
         // Successful authentication means removal from the list of failed users
-        failedUsers.remove(username);
+        failedUsers.remove(username.toLowerCase(Locale.ENGLISH));
     }
 
 
@@ -240,11 +241,12 @@ public class LockOutRealm extends CombinedRealm {
     private void registerAuthFailure(String username) {
         LockRecord lockRecord;
         synchronized (this) {
-            if (!failedUsers.containsKey(username)) {
+            String usernameLC = username.toLowerCase(Locale.ENGLISH);
+            if (!failedUsers.containsKey(usernameLC)) {
                 lockRecord = new LockRecord();
-                failedUsers.put(username, lockRecord);
+                failedUsers.put(usernameLC, lockRecord);
             } else {
-                lockRecord = failedUsers.get(username);
+                lockRecord = failedUsers.get(usernameLC);
                 if (lockRecord.getFailures() >= failureCount &&
                         ((System.currentTimeMillis() - lockRecord.getLastFailureTime()) / 1000) > lockOutTime) {
                     // User was previously locked out but lockout has now
