@@ -138,8 +138,20 @@ public class RequestHeaderExample extends HttpServlet {
             String headerName = e.nextElement();
             String headerValue = request.getHeader(headerName);
 
+            String filteredValue;
+            if (headerName.toLowerCase(Locale.ENGLISH).contains("cookie")) {
+                HttpSession session = request.getSession(false);
+                String sessionId = null;
+                if (session != null) {
+                    sessionId = session.getId();
+                }
+                filteredValue = CookieFilter.filter(headerValue, sessionId);
+            } else {
+                filteredValue = headerValue;
+            }
+
             out.append("{\"").append(JSONFilter.escape(headerName)).append("\":\"")
-                    .append(JSONFilter.escape(headerValue)).append("\"}");
+                    .append(JSONFilter.escape(filteredValue)).append("\"}");
 
             if (e.hasMoreElements()) {
                 out.append(',');
