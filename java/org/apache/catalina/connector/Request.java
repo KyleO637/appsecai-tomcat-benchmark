@@ -2543,6 +2543,17 @@ public class Request implements HttpServletRequest {
             checkSwallowInput();
             partsParseException = e;
         }
+        if (partsParseException != null && parts != null) {
+            for (Part part : parts) {
+                try {
+                    part.delete();
+                } catch (Throwable t) {
+                    ExceptionUtils.handleThrowable(t);
+                    log.warn(sm.getString("coyoteRequest.deletePartFailed", part.getName()), t);
+                }
+            }
+            parts = null;
+        }
     }
 
 
