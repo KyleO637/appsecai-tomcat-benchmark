@@ -792,7 +792,9 @@ class Stream extends AbstractNonZeroStream implements HeaderEmitter {
         if (inputByteBuffer == null) {
             remaining = 0;
         } else {
-            remaining = inputByteBuffer.remaining();
+            synchronized (inputByteBuffer) {
+                remaining = inputByteBuffer.remaining();
+            }
         }
         handler.replaceStream(this, new RecycledStream(getConnectionId(), getIdentifier(), state, remaining));
         coyoteRequest.recycle();
