@@ -804,6 +804,9 @@ public abstract class AuthenticatorBase extends ValveBase implements Authenticat
         } catch (AuthException e) {
             log.debug(sm.getString("authenticator.loginFail"), e);
             return false;
+        } catch (RuntimeException e) {
+            log.debug(sm.getString("authenticator.loginFail"), e);
+            return false;
         }
 
         request.setRequest((HttpServletRequest) state.messageInfo.getRequestMessage());
