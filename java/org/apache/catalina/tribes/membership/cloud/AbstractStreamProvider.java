@@ -30,6 +30,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -81,7 +82,18 @@ public abstract class AbstractStreamProvider implements StreamProvider {
     public URLConnection openConnection(String url, Map<String,String> headers, int connectTimeout, int readTimeout)
             throws IOException {
         if (log.isDebugEnabled()) {
-            log.debug(sm.getString("abstractStream.connection", getClass().getSimpleName(), url, headers,
+            Map<String,String> redactedHeaders = new LinkedHashMap<>();
+            if (headers != null) {
+                for (Map.Entry<String,String> entry : headers.entrySet()) {
+                    String key = entry.getKey();
+                    if ("Authorization".equalsIgnoreCase(key)) {
+                        redactedHeaders.put(key, "REDACTED");
+                    } else {
+                        redactedHeaders.put(key, entry.getValue());
+                    }
+                }
+            }
+            log.debug(sm.getString("abstractStream.connection", getClass().getSimpleName(), url, redactedHeaders,
                     Integer.toString(connectTimeout), Integer.toString(readTimeout)));
         }
         URLConnection connection;
