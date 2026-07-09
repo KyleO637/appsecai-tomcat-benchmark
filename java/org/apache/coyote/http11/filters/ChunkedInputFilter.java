@@ -364,6 +364,9 @@ public class ChunkedInputFilter implements InputFilter, ApplicationBufferHandler
                 // Extension 'parsing'
                 // Note that the chunk-extension is neither parsed nor
                 // validated. Currently it is simply ignored.
+                if ((chr < 0x20 && chr != Constants.HT) || chr == 0x7F) {
+                    throwIOException(sm.getString("chunkedInputFilter.invalidHeader"));
+                }
                 extensionSize++;
                 if (maxExtensionSize > -1 && extensionSize > maxExtensionSize) {
                     throwIOException(sm.getString("chunkedInputFilter.maxExtension"));
@@ -489,6 +492,8 @@ public class ChunkedInputFilter implements InputFilter, ApplicationBufferHandler
 
             if (chr == Constants.COLON) {
                 colon = true;
+            } else if (chr == Constants.CR || chr == Constants.LF || chr < 0x20 || chr == 0x7F) {
+                throwIOException(sm.getString("chunkedInputFilter.invalidHeader"));
             } else {
                 trailingHeaders.append(chr);
             }
