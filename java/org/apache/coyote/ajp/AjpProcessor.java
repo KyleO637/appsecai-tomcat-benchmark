@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.NoSuchProviderException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
@@ -840,7 +842,8 @@ public class AjpProcessor extends AbstractProcessor {
                     requestHeaderMessage.getBytes(tmpMB);
                     if (secret != null && secret.length() > 0) {
                         secretPresentInRequest = true;
-                        if (!tmpMB.equals(secret)) {
+                        if (!MessageDigest.isEqual(tmpMB.toString().getBytes(StandardCharsets.UTF_8),
+                                secret.getBytes(StandardCharsets.UTF_8))) {
                             response.setStatus(403);
                             setErrorState(ErrorState.CLOSE_CLEAN, null);
                         }
@@ -956,23 +959,24 @@ public class AjpProcessor extends AbstractProcessor {
         responseMsgPos = -1;
 
         int numHeaders = headers.size();
+
+        // Write AJP message header unconditionally before the loop so that
+        // responseMessage is always reset, preventing stale buffer content
+        // from a prior response from being written when numHeaders == 0.
+        responseMessage.reset();
+        responseMessage.appendByte(Constants.JK_AJP13_SEND_HEADERS);
+
+        // Write HTTP response line
+        responseMessage.appendInt(statusCode);
+        // Reason phrase is optional but mod_jk + httpd 2.x fails with a null
+        // reason phrase - bug 45026
+        tmpMB.setString(Integer.toString(response.getStatus()));
+        responseMessage.appendBytes(tmpMB);
+
+        // Start headers
+        responseMessage.appendInt(numHeaders);
+
         for (int i = 0; i < numHeaders; i++) {
-            if (i == 0) {
-                // Write AJP message header
-                responseMessage.reset();
-                responseMessage.appendByte(Constants.JK_AJP13_SEND_HEADERS);
-
-                // Write HTTP response line
-                responseMessage.appendInt(statusCode);
-                // Reason phrase is optional but mod_jk + httpd 2.x fails with a null
-                // reason phrase - bug 45026
-                tmpMB.setString(Integer.toString(response.getStatus()));
-                responseMessage.appendBytes(tmpMB);
-
-                // Start headers
-                responseMessage.appendInt(numHeaders);
-            }
-
             try {
                 // Write headers
                 MessageBytes hN = headers.getName(i);
