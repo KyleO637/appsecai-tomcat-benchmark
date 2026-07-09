@@ -227,6 +227,7 @@ class Http2Parser {
             hpackDecoder.setHeaderEmitter(output.headersStart(streamId, headersEndStream));
         } catch (StreamException se) {
             swallowPayload(streamId, FrameType.HEADERS.getId(), payloadSize, false, buffer);
+            headersEndStream = false;
             throw se;
         }
 
@@ -454,7 +455,18 @@ class Http2Parser {
 
         ByteArrayInputStream bais = new ByteArrayInputStream(payload, 4, payloadSize - 4);
         Reader r = new BufferedReader(new InputStreamReader(bais, StandardCharsets.US_ASCII));
-        Priority p = Priority.parsePriority(r);
+        Priority p;
+        try {
+            p = Priority.parsePriority(r);
+        } catch (IOException ioe) {
+            throw new ConnectionException(sm.getString("http2Parser.processFramePriorityUpdate.invalidPriority",
+                    connectionId), Http2Error.PROTOCOL_ERROR);
+        }
+
+        if (p == null) {
+            throw new ConnectionException(sm.getString("http2Parser.processFramePriorityUpdate.invalidPriority",
+                    connectionId), Http2Error.PROTOCOL_ERROR);
+        }
 
         if (log.isTraceEnabled()) {
             log.trace(sm.getString("http2Parser.processFramePriorityUpdate.debug", connectionId,
@@ -623,7 +635,12 @@ class Http2Parser {
         // Delay validation (and triggering any exception) until this point
         // since all the headers still have to be read if a StreamException is
         // going to be thrown.
-        hpackDecoder.getHeaderEmitter().validateHeaders();
+        try {
+            hpackDecoder.getHeaderEmitter().validateHeaders();
+        } catch (StreamException se) {
+            headersEndStream = false;
+            throw se;
+        }
 
         synchronized (output) {
             output.headersEnd(streamId, headersEndStream);
