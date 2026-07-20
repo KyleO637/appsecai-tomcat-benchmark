@@ -371,5 +371,16 @@
         "triage_result": null
       }
     ]
+  },
+  "CVE-2026-43512": {
+    "submitted_to_appsecai": true,
+    "runs": [
+      {
+        "pr_created": null,
+        "date": "2026-07-20",
+        "system_version": null,
+        "triage_result": null
+      }
+    ]
   }
 }
